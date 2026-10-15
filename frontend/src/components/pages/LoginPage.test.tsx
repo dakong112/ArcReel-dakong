@@ -1,4 +1,4 @@
-import { fireEvent, render, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
@@ -82,5 +82,30 @@ describe("LoginPage returnTo consumption", () => {
     await waitFor(() => {
       expect(history.at(-1)).toBe("/app/projects");
     });
+  });
+});
+
+describe("LoginPage new-api entry", () => {
+  function stubStatus(newapi: { enabled: boolean; authorize_url: string | null }) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: vi.fn().mockResolvedValue({ enabled: true, newapi }),
+      } as unknown as Response),
+    );
+  }
+
+  it("offers new-api sign-in when the server exposes an authorize URL", async () => {
+    stubStatus({ enabled: true, authorize_url: "https://account.test/sso/authorize?client_id=c" });
+    renderLoginAt("/login");
+    expect(await screen.findByRole("button", { name: "用 new-api 登录" })).toBeInTheDocument();
+  });
+
+  it("keeps password-only login when new-api is not configured", async () => {
+    stubStatus({ enabled: false, authorize_url: null });
+    const { container } = renderLoginAt("/login");
+    await waitFor(() => expect(fetch).toHaveBeenCalled());
+    expect(container.querySelectorAll("button")).toHaveLength(1);
   });
 });

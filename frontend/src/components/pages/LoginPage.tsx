@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import { Loader2 } from "lucide-react";
 import { useAutoFocus } from "@/hooks/useAutoFocus";
 import { errMsg, voidPromise } from "@/utils/async";
@@ -6,6 +6,7 @@ import { useLocation, useSearch } from "wouter";
 import { useTranslation } from "react-i18next";
 import { useAuthStore } from "@/stores/auth-store";
 import { safeReturnPath } from "@/utils/safe-url";
+import { startNewapiLogin } from "@/utils/newapi-sso";
 import { BRAND } from "@/branding";
 import type { LoginResponse, ErrorResponse } from "@/api";
 import { Button } from "@/components/ui/button";
@@ -22,6 +23,27 @@ export function LoginPage() {
   const search = useSearch();
   const login = useAuthStore((s) => s.login);
   const usernameRef = useAutoFocus<HTMLInputElement>();
+  const [newapiUrl, setNewapiUrl] = useState<string | null>(null);
+
+  // new-api 登录入口来自 /auth/status；未配置或拉取失败时只显示密码登录。
+  // `?sso=1`（如从 new-api 应用列表进入）直接发起，不停留在登录页。
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/v1/auth/status", { signal: controller.signal })
+      .then((res) => (res.ok ? (res.json() as Promise<{ newapi?: { authorize_url?: unknown } }>) : null))
+      .then((payload) => {
+        const url = payload?.newapi?.authorize_url;
+        if (typeof url !== "string") return;
+        const params = new URLSearchParams(search);
+        if (params.get("sso") === "1") {
+          startNewapiLogin(url, params.get("from"));
+          return;
+        }
+        setNewapiUrl(url);
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, [search]);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -113,6 +135,17 @@ export function LoginPage() {
             {loading ? t("auth:logging_in") : t("auth:login")}
           </Button>
         </form>
+
+        {newapiUrl && (
+          <Button
+            type="button"
+            variant="outline"
+            size="lg"
+            onClick={() => startNewapiLogin(newapiUrl, new URLSearchParams(search).get("from"))}
+          >
+            {t("auth:login_with_newapi")}
+          </Button>
+        )}
       </div>
     </div>
   );

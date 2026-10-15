@@ -7,6 +7,7 @@ import { StudioLayout } from "@/components/layout";
 import { StudioCanvasRouter } from "@/components/canvas/StudioCanvasRouter";
 import { ProjectsPage } from "@/components/pages/ProjectsPage";
 import { LoginPage } from "@/components/pages/LoginPage";
+import { SsoCallbackPage } from "@/components/pages/SsoCallbackPage";
 import { NotFoundPage } from "@/components/pages/NotFoundPage";
 import { ToastOverlay } from "@/components/layout/ToastOverlay";
 import { LazyBoundary } from "@/components/shared/LazyBoundary";
@@ -222,6 +223,7 @@ export function AppRoutes() {
         <Switch>
           {/* Login page */}
           <Route path="/login" component={LoginPage} />
+          <Route path="/sso/callback" component={SsoCallbackPage} />
 
           {/* Root redirects to projects list */}
           <Route path="/">
