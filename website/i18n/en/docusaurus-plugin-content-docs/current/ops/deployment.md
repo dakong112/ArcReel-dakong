@@ -176,6 +176,10 @@ The default deployment examples currently include these core variables:
 | `ARCREEL_DATA_DIR` | `projects` | Data root; projects, the default SQLite database, logs, and Vertex credentials all live under it |
 | `CORS_ORIGINS` | Wildcard | When narrowed to an allowlist, browser MCP client origins must be listed too |
 | `ARCREEL_OFFICIAL_SERVICE_URL` | Built-in official service address | The official service behind market install counts, ratings, and submissions; set it to empty to turn it off entirely, leaving the market to read market sources only |
+| `NEWAPI_BASE_URL` / `NEWAPI_CLIENT_ID` / `NEWAPI_CLIENT_SECRET` / `NEWAPI_REDIRECT_URI` | Empty | With all four set, the login page offers "Sign in with new-api"; password login keeps working |
+| `NEWAPI_PUBLIC_URL` | Same as `NEWAPI_BASE_URL` | The new-api address browsers use |
+| `NEWAPI_ALLOWED_USER_IDS` | Empty | Comma-separated new-api user IDs; users outside the list cannot sign in. The primary access control is `allowed_user_ids` on the new-api SSO client |
+| `NEWAPI_AUTO_PROVIDER` | `false` | When `true` and no provider is configured yet, the first SSO sign-in saves the returned API key as a custom provider on `NEWAPI_BASE_URL/v1` |
 
 Notes:
 
@@ -185,6 +189,7 @@ Notes:
 - Vertex credential files should be readable only by the user who runs ArcReel.
 - File logs are always written to `logs/` under the data root. The old `ARCREEL_LOG_DIR` variable no longer takes effect; if it is still set, startup logs a one-time notice. Set `ARCREEL_LOG_FILE_DISABLED=true` if you only want logs on stdout.
 - Third-party model API keys are normally managed on the ArcReel Settings page. Do not include them in public documentation.
+- With new-api SSO, every new-api user who completes the exchange signs in as this instance's single user. Deploy one instance per customer and set `allowed_user_ids` on the new-api SSO client; see `deploy/customer/README.md` in the repository.
 
 The remote MCP endpoint is `/mcp` and always requires an API Key with an `arc-` prefix; it never permits anonymous access, even when `AUTH_ENABLED=false`. Remote access needs no extra `MCP_*` configuration: paste the endpoint URL shown under "External agent access" in Settings, together with an API Key created under "Access tokens", into your client, and connect through an HTTPS reverse proxy, VPN, or secure tunnel that preserves long-lived SSE connections.
 

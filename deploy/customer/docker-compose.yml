@@ -1,0 +1,29 @@
+# 按客户部署的 ArcReel 实例模板：一个客户一个目录、一个容器、一份数据卷、一个子域名。
+# 用法见同目录 README.md；每个客户复制整个目录后只改 .env。
+name: arcreel-${CUSTOMER_SLUG:?请在 .env 中设置 CUSTOMER_SLUG}
+
+services:
+  arcreel:
+    image: arcreel/arcreel:latest
+    # 只发布到本机回环地址，由宿主机反向代理按子域名转发（TLS 在反向代理终止）。
+    ports:
+      - "127.0.0.1:${ARCREEL_PORT:?请在 .env 中设置 ARCREEL_PORT}:1241"
+    env_file: .env
+    environment:
+      TZ: ${TZ:-Asia/Shanghai}
+    # Agent Bash 沙箱 (bwrap) 所需，与 deploy/docker-compose.yml 相同。
+    security_opt:
+      - seccomp:unconfined
+      - apparmor:unconfined
+    cap_add:
+      - NET_ADMIN
+    volumes:
+      - ./.env:/app/.env
+      - ./projects:/app/projects
+      - ./claude_data:/root/.claude
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:1241/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

@@ -176,6 +176,10 @@ ArcReel 在应用启动时运行 Alembic 迁移，将数据库结构升级到当
 | `ARCREEL_DATA_DIR` | `projects` | 数据根；项目、默认 SQLite 数据库、日志和 Vertex 凭据都在其下 |
 | `CORS_ORIGINS` | 通配 | 设为白名单时，浏览器型 MCP 客户端的 Origin 也须列入 |
 | `ARCREEL_OFFICIAL_SERVICE_URL` | 内置官方服务地址 | 市场安装量、评分与分享提交所用的官方服务；设为空即整体关闭，市场回到只读取市场源的形态 |
+| `NEWAPI_BASE_URL` / `NEWAPI_CLIENT_ID` / `NEWAPI_CLIENT_SECRET` / `NEWAPI_REDIRECT_URI` | 空 | 四项齐全时登录页提供「用 new-api 登录」，本地密码登录照常可用 |
+| `NEWAPI_PUBLIC_URL` | 同 `NEWAPI_BASE_URL` | 浏览器访问 new-api 的地址 |
+| `NEWAPI_ALLOWED_USER_IDS` | 空 | 逗号分隔的 new-api 用户 id，名单外的用户不能登录；主要的访问控制在 new-api 的 SSO 客户端 `allowed_user_ids` |
+| `NEWAPI_AUTO_PROVIDER` | `false` | 为 `true` 且尚未配置任何供应商时，首次统一登录把返回的 API 密钥保存为指向 `NEWAPI_BASE_URL/v1` 的自定义供应商 |
 
 注意：
 
@@ -185,6 +189,7 @@ ArcReel 在应用启动时运行 Alembic 迁移，将数据库结构升级到当
 - Vertex 凭据文件应只授予运行 ArcReel 的用户读取权限。
 - 文件日志固定写入数据根下的 `logs/`。旧变量 `ARCREEL_LOG_DIR` 已不再生效，仍设置时启动日志会提示一次；只需要 stdout 日志时设置 `ARCREEL_LOG_FILE_DISABLED=true`。
 - 第三方模型 API Key 通常在 ArcReel 设置页中管理，不要写入公开文档。
+- 用 new-api 统一账号登录时，任何换得身份的 new-api 用户都会以本实例的唯一用户身份登录。按客户一个实例部署，并在 new-api 的 SSO 客户端填写 `allowed_user_ids`，步骤见仓库中的 `deploy/customer/README.md`。
 
 远程 MCP 端点为 `/mcp`，始终要求 `arc-` 前缀 API Key；即使 `AUTH_ENABLED=false` 也不会匿名放行。外部接入不需要额外的 `MCP_*` 配置：把设置页「外部 Agent 接入」给出的端点地址，与在「访问令牌」创建的 API Key 填进客户端即可，通过保留 SSE 长连接的 HTTPS 反向代理、VPN 或安全隧道访问。
 
