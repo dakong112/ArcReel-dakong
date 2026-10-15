@@ -24,6 +24,7 @@ PUBLIC_OPERATIONS = frozenset(
         "GET /health",
         "GET /api/v1/auth/status",
         "POST /api/v1/auth/token",
+        "POST /api/v1/auth/newapi/exchange",
         "GET /api/v1/files/{project_name}/{path}",
         "GET /api/v1/global-assets/{asset_type}/{filename}",
     }
