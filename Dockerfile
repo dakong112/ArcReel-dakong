@@ -1,3 +1,7 @@
+# 拉不到 ghcr.io 时换成镜像站，如 --build-arg UV_IMAGE=ghcr.nju.edu.cn/astral-sh/uv:latest
+ARG UV_IMAGE=ghcr.io/astral-sh/uv:latest
+FROM ${UV_IMAGE} AS uv
+
 # ============================================================
 # Stage 1: 构建前端
 # ============================================================
@@ -11,9 +15,13 @@ WORKDIR /build/frontend
 ENV COREPACK_ENABLE_DOWNLOAD_PROMPT=0
 RUN corepack enable
 
+# 可选 npm 镜像源（未传时用官方源），如 --build-arg NPM_REGISTRY=https://registry.npmmirror.com
+ARG NPM_REGISTRY
+
 # 先复制依赖文件，利用缓存（corepack 按 packageManager 字段自动下载对应 pnpm）
 COPY frontend/package.json frontend/pnpm-lock.yaml ./
-RUN pnpm install --frozen-lockfile
+RUN if [ -n "$NPM_REGISTRY" ]; then export COREPACK_NPM_REGISTRY="$NPM_REGISTRY" npm_config_registry="$NPM_REGISTRY"; fi \
+    && pnpm install --frozen-lockfile
 
 # 复制前端源码并构建
 COPY frontend/ ./
@@ -42,7 +50,7 @@ RUN echo "apt refresh: ${APT_REFRESH}" \
 RUN python -m pip install --no-cache-dir --upgrade pip
 
 # 安装 uv
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+COPY --from=uv /uv /usr/local/bin/uv
 
 WORKDIR /app
 
@@ -80,4 +88,4 @@ HEALTHCHECK --interval=30s --timeout=5s --retries=3 \
     CMD curl -f http://localhost:1241/health || exit 1
 
 # 启动命令
-CMD ["uv", "run", "uvicorn", "server.app:app", "--host", "0.0.0.0", "--port", "1241"]
+CMD ["uv", "run", "--no-dev", "uvicorn", "server.app:app", "--host", "0.0.0.0", "--port", "1241"]

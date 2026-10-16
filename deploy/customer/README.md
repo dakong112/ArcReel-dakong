@@ -14,10 +14,40 @@ ArcReel 是单租户应用：一个实例里只有一个用户空间，所有项
 | 资源 | 示例 | 说明 |
 |---|---|---|
 | 目录 | `/srv/arcreel/alice/` | 复制本目录得到，内含 `docker-compose.yml`、`.env` 与数据 |
-| 容器 | `arcreel-alice` | Compose 项目名取 `CUSTOMER_SLUG` |
+| 容器 | `arcreel-alice-arcreel-1` | Compose 项目名为 `arcreel-<CUSTOMER_SLUG>` |
 | 数据卷 | `/srv/arcreel/alice/projects/` | 项目、生成资产、SQLite 数据库、日志 |
 | 子域名 | `alice.arcreel.example.com` | 反向代理按域名转发到该客户的回环端口 |
 | SSO 客户端 | `arcreel-alice` | new-api「SSOClients」里的一条，`allowed_user_ids` 列出能登录的 new-api 用户 |
+
+## 0. 宿主机准备（每台宿主机一次）
+
+### 0.1 构建镜像
+
+new-api 统一登录在本分支，公开的 `arcreel/arcreel` 镜像里没有。模板用 `arcreel/arcreel:latest`，在宿主机上从仓库根目录构建同名本地镜像（上传源码时不带 `node_modules`、`.venv`、`.git`）：
+
+```bash
+docker build -t arcreel/arcreel:latest .
+```
+
+国内宿主机拉不到 ghcr.io / npm 官方源时加镜像参数；apt 与 PyPI 下载失败时再加代理（`--network host` 让构建容器能用宿主机上的代理）：
+
+```bash
+docker build -t arcreel/arcreel:latest   --build-arg UV_IMAGE=ghcr.nju.edu.cn/astral-sh/uv:latest   --build-arg NPM_REGISTRY=https://registry.npmmirror.com   --network host --build-arg HTTPS_PROXY=http://127.0.0.1:7890 --build-arg HTTP_PROXY=http://127.0.0.1:7890 .
+```
+
+### 0.2 Agent 沙箱的内核要求
+
+容器启动时会试跑 bubblewrap，跑不起来就拒绝启动（日志 `SANDBOX_BWRAP_BROKEN`）：
+
+- `/proc/sys/user/max_user_namespaces = 0`（CentOS 7 默认）：`sysctl -w user.max_user_namespaces=15000`，并写入 `/etc/sysctl.d/` 持久化。
+- 报 `Can't open source /: Function not implemented`：宿主机内核太旧（如 CentOS 7 的 3.10），镜像里的 bubblewrap 0.12 用到了旧内核没有的挂载接口。应升级宿主机内核；临时办法是在客户目录放 Debian bookworm 的 bubblewrap 0.8（从 `bubblewrap_0.8.0-2+deb12u1_amd64.deb` 解出 `usr/bin/bwrap` 到 `./compat/bwrap`），再加 `docker-compose.override.yml`：
+
+```yaml
+services:
+  arcreel:
+    volumes:
+      - ./compat/bwrap:/usr/bin/bwrap:ro
+```
 
 ## 1. 开通一个客户
 
@@ -136,7 +166,7 @@ server {
 ## 5. 日常运维
 
 - 备份：归档整个客户目录（`.env` 与 `projects/`），方式同 `website/docs/ops/deployment.md`「6.1 SQLite 部署备份」。
-- 升级：逐个实例 `docker compose pull && docker compose up -d`，先在一个实例上验证。
+- 升级：按 0.1 重新构建镜像，再逐个实例 `docker compose up -d`，先在一个实例上验证。
 - 日志：`docker compose logs -f arcreel`；统一登录失败时日志里有 `new-api SSO 交换` 开头的记录，含 new-api 返回的状态码与原因。
 
 ## 6. 后续：多租户
