@@ -32,8 +32,10 @@ docker build -t arcreel/arcreel:latest .
 国内宿主机拉不到 ghcr.io / npm 官方源时加镜像参数；apt 与 PyPI 下载失败时再加代理（`--network host` 让构建容器能用宿主机上的代理）：
 
 ```bash
-docker build -t arcreel/arcreel:latest   --build-arg UV_IMAGE=ghcr.nju.edu.cn/astral-sh/uv:latest   --build-arg NPM_REGISTRY=https://registry.npmmirror.com   --network host --build-arg HTTPS_PROXY=http://127.0.0.1:7890 --build-arg HTTP_PROXY=http://127.0.0.1:7890 .
+docker build -t arcreel/arcreel:latest   --build-arg UV_IMAGE=ghcr.nju.edu.cn/astral-sh/uv:latest   --build-arg NPM_REGISTRY=https://registry.npmmirror.com   --network host --build-arg HTTPS_PROXY=http://127.0.0.1:7890 --build-arg HTTP_PROXY=http://127.0.0.1:7890 --build-arg http_proxy=http://127.0.0.1:7890 --build-arg https_proxy=http://127.0.0.1:7890 .
 ```
+
+apt 只认小写的 `http_proxy`，大小写两组代理参数都要传。
 
 ### 0.2 Agent 沙箱的内核要求
 
