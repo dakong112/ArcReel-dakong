@@ -558,7 +558,6 @@ MESSAGES = {
     "source_kind_not_applicable": "只有剧情演绎项目区分源文件类型",
     "source_changed_outside": "这个文件在 ArcReel 之外被改动过，更新分集账本之前不能改源文件类型",
     "source_name_not_whole_source": "以下划线开头或形如 episode_N.txt 的文件名不能加入整本源文，可以把 {filename} 作为某一集的原文，或者删除",
-    "about_update_check_failed": "检查更新失败，请稍后重试",
     "about_version_read_failed": "读取应用版本失败",
     # Image Capability
     "image_endpoint_mismatch_no_i2i": "模型 {model} 仅支持文生图（不支持 /v1/images/edits）；请去掉参考图或换一个支持图生图的模型",

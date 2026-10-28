@@ -623,7 +623,6 @@ MESSAGES = {
     "source_kind_not_applicable": "Chỉ dự án phim truyện mới phân biệt loại tệp nguồn",
     "source_changed_outside": "Tệp này đã bị sửa bên ngoài ArcReel. Chưa thể đổi loại tệp nguồn cho đến khi sổ phân tập được cập nhật",
     "source_name_not_whole_source": "Tên tệp bắt đầu bằng dấu gạch dưới hoặc có dạng episode_N.txt không thể thêm vào toàn bộ văn bản nguồn; hãy dùng {filename} làm nguyên văn của một tập hoặc xóa tệp",
-    "about_update_check_failed": "Kiểm tra cập nhật thất bại, vui lòng thử lại sau",
     "about_version_read_failed": "Không đọc được phiên bản ứng dụng",
     # Image Capability
     "image_endpoint_mismatch_no_i2i": "Mô hình {model} chỉ hỗ trợ text-to-image (không có /v1/images/edits); hãy bỏ ảnh tham chiếu hoặc chọn mô hình hỗ trợ chỉnh sửa ảnh",

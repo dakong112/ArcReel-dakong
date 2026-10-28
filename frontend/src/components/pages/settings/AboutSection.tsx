@@ -1,28 +1,15 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
-import { AlertTriangle, ChevronRight, Loader2, RefreshCcw } from "lucide-react";
+import { AlertTriangle, Loader2 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
-import { StreamMarkdown } from "@/components/copilot/StreamMarkdown";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { formatDate } from "@/utils/date-format";
 import { downloadBlob } from "@/utils/download";
 import type { GetSystemVersionResponse } from "@/types";
 
-const ABOUT_DATE_OPTS: Intl.DateTimeFormatOptions = {
-  year: "numeric",
-  month: "short",
-  day: "numeric",
-  hour: "2-digit",
-  minute: "2-digit",
-};
-
 export function AboutSection() {
-  const { t, i18n } = useTranslation("dashboard");
+  const { t } = useTranslation("dashboard");
   const [data, setData] = useState<GetSystemVersionResponse | null>(null);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState<string | null>(null);
@@ -55,7 +42,6 @@ export function AboutSection() {
 
   const fetchVersion = useCallback(async () => {
     setError(null);
-    setRefreshing(true);
     try {
       const result = await API.getSystemVersion();
       if (mountedRef.current) setData(result);
@@ -66,7 +52,6 @@ export function AboutSection() {
     } finally {
       if (mountedRef.current) {
         setLoading(false);
-        setRefreshing(false);
       }
     }
   }, [t]);
@@ -85,77 +70,22 @@ export function AboutSection() {
     );
   }
 
-  const latest = data?.latest ?? null;
-  const checkError = error ?? data?.update_check_error;
-
   return (
     <div className="flex flex-col gap-6">
       <h2 className="text-lg font-medium">{t("about")}</h2>
 
-      <section aria-labelledby={versionLabelId} className="flex flex-col rounded-lg border border-border bg-card">
-        <div className="flex flex-wrap items-start justify-between gap-4 p-4">
-          <div className="flex min-w-0 flex-col gap-2">
-            <p id={versionLabelId} className="text-xs font-medium text-muted-foreground">
-              {t("about_current_version")}
-            </p>
-            <div className="flex flex-wrap items-center gap-3">
-              <span className="text-2xl font-medium tabular-nums">{data?.current.version ?? "-"}</span>
-              {data?.has_update ? (
-                <Badge>{t("about_update_available")}</Badge>
-              ) : (
-                <Badge variant="secondary">{t("about_up_to_date")}</Badge>
-              )}
-            </div>
-            <div className="flex flex-col gap-0.5 text-sm text-muted-foreground">
-              {latest && <p>{t("about_latest_version", { version: latest.version })}</p>}
-              {latest?.published_at && (
-                <p>
-                  {t("about_published_at", {
-                    date: formatDate(latest.published_at, i18n.language, ABOUT_DATE_OPTS, "-"),
-                  })}
-                </p>
-              )}
-              <p>
-                {t("about_checked_at", {
-                  date: formatDate(data?.checked_at ?? "", i18n.language, ABOUT_DATE_OPTS, "-"),
-                })}
-              </p>
-            </div>
-          </div>
-          <Button variant="outline" onClick={() => void fetchVersion()} disabled={refreshing}>
-            <RefreshCcw className={refreshing ? "animate-spin" : undefined} aria-hidden />
-            {refreshing ? t("about_checking_update") : t("about_check_update")}
-          </Button>
-        </div>
-
-        {checkError && (
-          <p role="alert" className="mx-4 mb-4 flex items-start gap-2 rounded-md bg-warn/10 px-3 py-2 text-sm text-warn">
+      {/* 本 fork 不检查上游新版本，也不展示上游发布说明；只显示当前版本。 */}
+      <section aria-labelledby={versionLabelId} className="flex flex-col gap-2 rounded-lg border border-border bg-card p-4">
+        <p id={versionLabelId} className="text-xs font-medium text-muted-foreground">
+          {t("about_current_version")}
+        </p>
+        <span className="text-2xl font-medium tabular-nums">{data?.current.version ?? "-"}</span>
+        {error && (
+          <p role="alert" className="flex items-start gap-2 rounded-md bg-warn/10 px-3 py-2 text-sm text-warn">
             <AlertTriangle aria-hidden className="mt-0.5 size-4 shrink-0" />
-            <span className="min-w-0 break-words">{checkError}</span>
+            <span className="min-w-0 break-words">{error}</span>
           </p>
         )}
-
-        {/* 发布说明默认收起，只展示最新一条；版本卡本身保持一屏内能看完。 */}
-        <div className="border-t border-border px-4 py-3">
-          <Collapsible>
-            <CollapsibleTrigger render={<Button variant="ghost" size="sm" className="-ml-2.5" />}>
-              <ChevronRight aria-hidden className="transition-transform group-aria-expanded/button:rotate-90" />
-              {t("about_release_notes")}
-              {latest && <span className="font-normal text-muted-foreground tabular-nums">{latest.version}</span>}
-            </CollapsibleTrigger>
-            <CollapsibleContent className="mt-2">
-              <div className="flex flex-col gap-3 pl-6">
-                {latest?.body ? (
-                  <div className="max-w-prose min-w-0 text-subtle-foreground">
-                    <StreamMarkdown content={latest.body} />
-                  </div>
-                ) : (
-                  <p className="text-sm text-muted-foreground">{t("about_release_notes_empty")}</p>
-                )}
-              </div>
-            </CollapsibleContent>
-          </Collapsible>
-        </div>
       </section>
 
       <section className="flex flex-col items-start gap-3 rounded-lg border border-border bg-card p-4">

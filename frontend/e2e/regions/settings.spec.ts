@@ -71,33 +71,6 @@ function manyModelsOverrides(): ApiOverrides {
   };
 }
 
-// 「关于」：有新版本，发布说明很长（多段、长链接）。代码块的横向滚动属于 Markdown 渲染的共用样式，不在这里覆盖。版本信息在录制环境里访问外网，固定由场景提供。
-const LONG_RELEASE: ApiOverrides = {
-  "GET /api/v1/system/version": {
-    status: 200,
-    body: {
-      current: { version: "0.32.0" },
-      latest: {
-        version: "0.33.0",
-        tag_name: "v0.33.0",
-        name: "0.33.0",
-        body: [
-          "## 新功能",
-          ...Array.from({ length: 24 }, (_, i) => `- 第 ${i + 1} 项改进：分镜画布在矮窗口下保留完整的编辑区域，长提示词不再撑开内容列，并补齐键盘操作`),
-          "",
-          "## 升级说明",
-          "升级前请备份数据目录。完整说明见 https://github.com/ArcReel/ArcReel/releases/tag/v0.33.0-with-a-very-long-anchor-for-wrapping-checks",
-        ].join("\n"),
-        html_url: "https://github.com/ArcReel/ArcReel/releases/tag/v0.33.0",
-        published_at: "2025-12-30T08:00:00Z",
-      },
-      has_update: true,
-      checked_at: "2026-01-01T07:00:00Z",
-      update_check_error: null,
-    },
-  },
-};
-
 const PROMPT_TEMPLATES = settings("prompt-templates");
 
 async function settingsReady(page: Page) {
@@ -237,37 +210,18 @@ defineRegionScenarios("全局设置", [
     },
   },
   {
-    name: "关于：版本卡的发布说明默认收起",
+    name: "关于：版本卡只显示当前版本，署名块可滚动到",
     path: settings("about"),
-    api: LONG_RELEASE,
     ready: async (page) => {
       await settingsReady(page);
       await page.getByRole("region", { name: "当前版本" }).waitFor();
     },
     act: async (page) => {
-      await expect(page.getByRole("button", { name: /发布说明/ })).toHaveAttribute("aria-expanded", "false");
       const main = page.getByRole("main");
       await main.evaluate((el) => el.scrollTo({ top: el.scrollHeight }));
       await expect(main.getByRole("link", { name: "https://github.com/ArcReel/ArcReel" })).toBeInViewport();
     },
     screenshot: { name: "settings-about-version", target: (page) => page.getByRole("region", { name: "当前版本" }) },
-  },
-  {
-    name: "关于：展开很长的发布说明，内容随分区滚动到底，长链接不撑宽",
-    path: settings("about"),
-    api: LONG_RELEASE,
-    ready: async (page) => {
-      await settingsReady(page);
-      await page.getByRole("region", { name: "当前版本" }).waitFor();
-    },
-    act: async (page) => {
-      await page.getByRole("button", { name: /发布说明/ }).click();
-      const release = page.getByRole("link", { name: "打开 GitHub Release" });
-      // 等懒加载 Markdown 完成排版，再滚到位于正文之后的 Release 链接。
-      await expect(page.locator(".markdown-body")).toBeVisible();
-      await release.scrollIntoViewIfNeeded();
-      await expect(release).toBeInViewport();
-    },
   },
   {
     name: "提示词模版列表展开画风组后滚动到底",

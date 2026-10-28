@@ -13,15 +13,13 @@ import math
 import tomllib
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from functools import lru_cache
 from pathlib import Path
 from typing import Annotated, Any, TypedDict
 from urllib.parse import urlsplit
 
-import httpx
 from fastapi import APIRouter, Depends, HTTPException
-from packaging.version import InvalidVersion, Version
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -32,7 +30,6 @@ from lib.backends.generation_type_buckets import (
     builtin_model_buckets,
     custom_model_buckets,
 )
-from lib.backends.http_status_errors import raise_for_status_redacted
 from lib.config.registry import PROVIDER_REGISTRY
 from lib.config.repository import mask_secret
 from lib.config.resolver import ConfigResolver
@@ -40,7 +37,6 @@ from lib.config.service import DEFAULT_VIDEO_POLL_TIMEOUT_SECONDS, ConfigService
 from lib.db import async_session_factory, get_async_session
 from lib.i18n import DEFAULT_LOCALE, translate_or
 from lib.infra.api_errors import UnprocessableError
-from lib.infra.httpx_shared import get_http_client
 from lib.market.sources import PROXY_PREFIX_SETTING
 from lib.speech.narration_config import parse_tts_backend
 from server.dependencies import get_config_service
@@ -53,14 +49,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 _PYPROJECT_PATH = _PROJECT_ROOT / "pyproject.toml"
-_GITHUB_RELEASE_LATEST_URL = "https://api.github.com/repos/ArcReel/ArcReel/releases/latest"
-_GITHUB_USER_AGENT = "ArcReel"
-_VERSION_CACHE_TTL_SECONDS = 300
-_latest_release_cache: dict[str, datetime | dict[str, str] | None] = {
-    "expires_at": None,
-    "payload": None,
-    "fetched_at": None,
-}
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -103,67 +91,6 @@ def _read_app_version() -> str:
 def get_app_version_reader() -> Callable[[], str]:
     """版本读取器的路由依赖；读失败的处置归路由，故注入可调用对象而非版本值。"""
     return _read_app_version
-
-
-def _parse_version(raw: str) -> Version | None:
-    text = raw.strip().removeprefix("v")
-    if not text:
-        return None
-    try:
-        return Version(text)
-    except InvalidVersion:
-        return None
-
-
-def _build_latest_release_payload(data: dict[str, Any]) -> dict[str, str]:
-    raw_version = str(data.get("name") or data.get("tag_name") or "").strip()
-    return {
-        "version": raw_version.removeprefix("v"),
-        "tag_name": str(data.get("tag_name") or ""),
-        "name": str(data.get("name") or ""),
-        "body": str(data.get("body") or ""),
-        "html_url": str(data.get("html_url") or ""),
-        "published_at": str(data.get("published_at") or ""),
-    }
-
-
-async def _get_latest_release(
-    *,
-    http_client: httpx.AsyncClient | None = None,
-    now: datetime | None = None,
-) -> tuple[dict[str, str], datetime]:
-    """Fetch latest GitHub release with a 5-minute cache.
-
-    Returns (payload, fetched_at) where fetched_at is the timestamp of the
-    actual successful HTTP fetch (not the current request time). This makes
-    the value safe to surface as `checked_at` to clients without misleading
-    them about cache freshness.
-    """
-    now = now or datetime.now(UTC)
-    expires_at = _latest_release_cache.get("expires_at")
-    payload = _latest_release_cache.get("payload")
-    fetched_at = _latest_release_cache.get("fetched_at")
-    if (
-        isinstance(expires_at, datetime)
-        and expires_at > now
-        and isinstance(payload, dict)
-        and isinstance(fetched_at, datetime)
-    ):
-        return payload, fetched_at
-
-    client = http_client or get_http_client()
-    response = await client.get(
-        _GITHUB_RELEASE_LATEST_URL,
-        headers={"Accept": "application/vnd.github+json", "User-Agent": _GITHUB_USER_AGENT},
-        timeout=5.0,
-    )
-    raise_for_status_redacted(response)
-    payload = _build_latest_release_payload(response.json())
-
-    _latest_release_cache["payload"] = payload
-    _latest_release_cache["fetched_at"] = now
-    _latest_release_cache["expires_at"] = now + timedelta(seconds=_VERSION_CACHE_TTL_SECONDS)
-    return payload, now
 
 
 @dataclass(frozen=True)
@@ -494,26 +421,13 @@ async def get_system_version(
         logger.exception("Failed to read app version")
         raise HTTPException(status_code=500, detail=_t("about_version_read_failed")) from exc
 
-    latest: dict[str, str] | None = None
-    has_update = False
-    update_check_error: str | None = None
-    checked_at: datetime = datetime.now(UTC)
-    try:
-        latest, checked_at = await _get_latest_release()
-        latest_v = _parse_version(latest["version"])
-        current_v = _parse_version(current_version)
-        if latest_v is not None and current_v is not None:
-            has_update = latest_v > current_v
-    except Exception as exc:
-        logger.warning("Failed to fetch latest release: %s", exc)
-        update_check_error = _t("about_update_check_failed")
-
     return {
         "current": {"version": current_version},
-        "latest": latest,
-        "has_update": has_update,
-        "checked_at": checked_at.isoformat(),
-        "update_check_error": update_check_error,
+        # Upstream release checks are disabled in this fork; the response shape stays stable.
+        "latest": None,
+        "has_update": False,
+        "checked_at": datetime.now(UTC).isoformat(),
+        "update_check_error": None,
     }
 
 

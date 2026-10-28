@@ -86,8 +86,8 @@ describe("AboutSection diagnostics download", () => {
   });
 });
 
-describe("AboutSection release notes", () => {
-  it("收起最新一条发布说明，展开后显示正文，不链接上游 Release", async () => {
+describe("AboutSection upstream release info", () => {
+  it("只显示当前版本，不显示新版本徽标与上游发布说明", async () => {
     vi.spyOn(API, "getSystemVersion").mockResolvedValue({
       ...VERSION_RESPONSE,
       latest: {
@@ -100,17 +100,13 @@ describe("AboutSection release notes", () => {
       },
       has_update: true,
     });
-    const user = userEvent.setup();
     render(<AboutSection />);
 
-    const toggle = await screen.findByRole("button", { name: /发布说明/ });
-    expect(toggle).toHaveAttribute("aria-expanded", "false");
-    expect(screen.queryByText(/faster exports/)).not.toBeInTheDocument();
-
-    await user.click(toggle);
-
-    // 正文可能从纯文本替换为 Markdown；同步查询并断言可见，不依赖子组件加载时序。
-    await waitFor(() => expect(screen.getByText(/faster exports/)).toBeVisible());
-    expect(screen.queryByRole("link", { name: /GitHub Release/ })).not.toBeInTheDocument();
+    expect(await screen.findByText("1.0.0")).toBeInTheDocument();
+    expect(screen.queryByText("发现新版本")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /发布说明|检查更新/ })).not.toBeInTheDocument();
+    expect(screen.queryByText(/faster exports|1\.1\.0/)).not.toBeInTheDocument();
+    // 许可证要求的署名块保留
+    expect(screen.getByRole("link", { name: "https://github.com/ArcReel/ArcReel" })).toBeInTheDocument();
   });
 });

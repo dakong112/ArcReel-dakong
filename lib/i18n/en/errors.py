@@ -621,7 +621,6 @@ MESSAGES = {
     "source_kind_not_applicable": "Only drama projects distinguish source types",
     "source_changed_outside": "This file was changed outside ArcReel. You cannot change its source type until the episode ledger is updated",
     "source_name_not_whole_source": "File names starting with an underscore or shaped like episode_N.txt cannot join the whole source; use {filename} as an episode's source text or delete it",
-    "about_update_check_failed": "Failed to check for updates, please try again later",
     "about_version_read_failed": "Failed to read app version",
     # Image Capability
     "image_endpoint_mismatch_no_i2i": "Model {model} only supports text-to-image (no /v1/images/edits); remove reference images or pick a model that supports image edits",

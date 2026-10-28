@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
@@ -232,22 +232,5 @@ describe("SystemConfigPage", () => {
     renderPage("/app/settings", "section=about");
 
     expect(await screen.findByText("0.9.0")).toBeInTheDocument();
-    expect(await screen.findByText(/最新版本：0.9.1/)).toBeInTheDocument();
-    expect(await screen.findByText("发现新版本")).toBeInTheDocument();
-  });
-
-  it("rechecks updates when clicking the refresh button", async () => {
-    const getSystemVersion = vi.spyOn(API, "getSystemVersion").mockResolvedValue(
-      makeVersionResponse({ latest: null, has_update: false, update_check_error: "boom" }),
-    );
-
-    renderPage("/app/settings", "section=about");
-
-    const button = await screen.findByRole("button", { name: /检查更新/ });
-    fireEvent.click(button);
-
-    await waitFor(() => {
-      expect(getSystemVersion).toHaveBeenCalledTimes(2);
-    });
   });
 });
