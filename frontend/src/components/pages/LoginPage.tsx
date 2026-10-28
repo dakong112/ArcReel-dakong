@@ -6,7 +6,7 @@ import { useLocation, useSearch } from "wouter";
 import { useTranslation } from "react-i18next";
 import { useAuthStore } from "@/stores/auth-store";
 import { safeReturnPath } from "@/utils/safe-url";
-import { startNewapiLogin } from "@/utils/newapi-sso";
+import { claimSilentLogin, startNewapiLogin } from "@/utils/newapi-sso";
 import { BRAND } from "@/branding";
 import type { LoginResponse, ErrorResponse } from "@/api";
 import { Button } from "@/components/ui/button";
@@ -24,24 +24,36 @@ export function LoginPage() {
   const login = useAuthStore((s) => s.login);
   const usernameRef = useAutoFocus<HTMLInputElement>();
   const [newapiUrl, setNewapiUrl] = useState<string | null>(null);
+  // 拿到 /auth/status 前不显示表单：已登录 new-api 的用户会被静默登录直接带走，不该看到表单闪一下。
+  const [checking, setChecking] = useState(true);
 
   // new-api 登录入口来自 /auth/status；未配置或拉取失败时只显示密码登录。
-  // `?sso=1`（如从 new-api 应用列表进入）直接发起，不停留在登录页。
+  // `?sso=1`（如从 new-api 应用列表进入）直接发起，不停留在登录页；否则每个标签页先静默试一次。
   useEffect(() => {
     const controller = new AbortController();
     fetch("/api/v1/auth/status", { signal: controller.signal })
-      .then((res) => (res.ok ? (res.json() as Promise<{ newapi?: { authorize_url?: unknown } }>) : null))
+      .then((res) =>
+        res.ok ? (res.json() as Promise<{ enabled?: unknown; newapi?: { authorize_url?: unknown } }>) : null,
+      )
       .then((payload) => {
         const url = payload?.newapi?.authorize_url;
-        if (typeof url !== "string") return;
-        const params = new URLSearchParams(search);
-        if (params.get("sso") === "1") {
-          startNewapiLogin(url, params.get("from"));
-          return;
+        if (typeof url === "string") {
+          const params = new URLSearchParams(search);
+          if (params.get("sso") === "1") {
+            startNewapiLogin(url, params.get("from"));
+            return;
+          }
+          if (payload?.enabled !== false && claimSilentLogin()) {
+            startNewapiLogin(url, params.get("from"), true);
+            return;
+          }
+          setNewapiUrl(url);
         }
-        setNewapiUrl(url);
+        setChecking(false);
       })
-      .catch(() => {});
+      .catch(() => {
+        if (!controller.signal.aborted) setChecking(false);
+      });
     return () => controller.abort();
   }, [search]);
 
@@ -82,6 +94,14 @@ export function LoginPage() {
       setLoading(false);
     }
   };
+
+  if (checking) {
+    return (
+      <div data-testid="login-page" className="flex h-dvh items-center justify-center bg-background">
+        <Loader2 aria-hidden className="size-5 animate-spin text-muted-foreground" />
+      </div>
+    );
+  }
 
   return (
     <div data-testid="login-page" className="relative flex h-dvh overflow-y-auto bg-background p-4 text-foreground">

@@ -64,4 +64,13 @@ describe("SsoCallbackPage", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("denied-by-server");
     expect(useAuthStore.getState().isAuthenticated).toBe(false);
   });
+
+  it("returns to the login form when new-api reports login_required", async () => {
+    savePending("s-1", "/app/projects/demo");
+    const history = renderCallbackAt("/sso/callback?error=login_required&state=s-1");
+
+    await waitFor(() => expect(history.at(-1)).toBe("/login?from=%2Fapp%2Fprojects%2Fdemo"));
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(sessionStorage.getItem("arcreel.newapi_sso")).toBeNull();
+  });
 });

@@ -4,6 +4,13 @@ import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import { LoginPage } from "@/components/pages/LoginPage";
 import { useAuthStore } from "@/stores/auth-store";
+import { startNewapiLogin } from "@/utils/newapi-sso";
+
+// 跳转 new-api 会离开页面，这里只记录调用。
+vi.mock("@/utils/newapi-sso", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/utils/newapi-sso")>()),
+  startNewapiLogin: vi.fn(),
+}));
 
 // wouter 的 useLocation/useSearch 钩子只暴露 pathname / search，不暴露 hash，
 // 无法用渲染探针断言 #fragment。改用 memoryLocation 的 record 历史：navigate
@@ -21,7 +28,9 @@ function renderLoginAt(path: string) {
 
 // 填表并提交。input id 来自 LoginPage（login-username / login-password），
 // 用 id 选择避免依赖 i18n 解析后的 label / 按钮文案。
-function submitLogin(container: HTMLElement) {
+// 表单在 /auth/status 返回后才渲染，先等它出现。
+async function submitLogin(container: HTMLElement) {
+  await waitFor(() => expect(container.querySelector("form")).not.toBeNull());
   fireEvent.change(container.querySelector<HTMLInputElement>("#login-username")!, {
     target: { value: "alice" },
   });
@@ -52,7 +61,7 @@ describe("LoginPage returnTo consumption", () => {
   // 防止以后误改回固定跳转 /app/projects 而主流程回归漏过。
   it("navigates to a valid internal ?from path after successful login", async () => {
     const { container, history } = renderLoginAt("/login?from=%2Fapp%2Fprojects%2Fdemo%3Ftab%3Dscene");
-    submitLogin(container);
+    await submitLogin(container);
     await waitFor(() => {
       expect(history.at(-1)).toBe("/app/projects/demo?tab=scene");
     });
@@ -62,7 +71,7 @@ describe("LoginPage returnTo consumption", () => {
   // 若源码（AuthGuard / 401 拦截 / safeReturnPath）丢掉 hash，此断言会失败。
   it("preserves the URL hash in the return path", async () => {
     const { container, history } = renderLoginAt("/login?from=%2Fapp%2Fprojects%2Fdemo%23shot-3");
-    submitLogin(container);
+    await submitLogin(container);
     await waitFor(() => {
       expect(history.at(-1)).toBe("/app/projects/demo#shot-3");
     });
@@ -70,7 +79,7 @@ describe("LoginPage returnTo consumption", () => {
 
   it("falls back to /app/projects when ?from is an unsafe open-redirect target", async () => {
     const { container, history } = renderLoginAt("/login?from=https%3A%2F%2Fevil.com%2Fapp%2Fx");
-    submitLogin(container);
+    await submitLogin(container);
     await waitFor(() => {
       expect(history.at(-1)).toBe("/app/projects");
     });
@@ -78,7 +87,7 @@ describe("LoginPage returnTo consumption", () => {
 
   it("falls back to /app/projects when no ?from is present", async () => {
     const { container, history } = renderLoginAt("/login");
-    submitLogin(container);
+    await submitLogin(container);
     await waitFor(() => {
       expect(history.at(-1)).toBe("/app/projects");
     });
@@ -86,6 +95,13 @@ describe("LoginPage returnTo consumption", () => {
 });
 
 describe("LoginPage new-api entry", () => {
+  const start = vi.mocked(startNewapiLogin);
+
+  beforeEach(() => {
+    sessionStorage.clear();
+    start.mockReset();
+  });
+
   function stubStatus(newapi: { enabled: boolean; authorize_url: string | null }) {
     vi.stubGlobal(
       "fetch",
@@ -96,7 +112,27 @@ describe("LoginPage new-api entry", () => {
     );
   }
 
+  it("silently tries new-api once per tab before showing the form", async () => {
+    stubStatus({ enabled: true, authorize_url: "https://account.test/api/sso/authorize?client_id=c" });
+    const first = renderLoginAt("/login?from=%2Fapp%2Fprojects%2Fdemo");
+    await waitFor(() =>
+      expect(start).toHaveBeenCalledWith(
+        "https://account.test/api/sso/authorize?client_id=c",
+        "/app/projects/demo",
+        true,
+      ),
+    );
+    expect(first.container.querySelector("form")).toBeNull();
+    first.unmount();
+
+    // login_required 回到登录页：不再跳走，显示表单。
+    renderLoginAt("/login");
+    expect(await screen.findByRole("button", { name: "用 new-api 登录" })).toBeInTheDocument();
+    expect(start).toHaveBeenCalledTimes(1);
+  });
+
   it("offers new-api sign-in when the server exposes an authorize URL", async () => {
+    sessionStorage.setItem("arcreel.newapi_sso_silent", String(Date.now()));
     stubStatus({ enabled: true, authorize_url: "https://account.test/sso/authorize?client_id=c" });
     renderLoginAt("/login");
     expect(await screen.findByRole("button", { name: "用 new-api 登录" })).toBeInTheDocument();

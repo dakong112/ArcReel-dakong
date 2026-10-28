@@ -18,9 +18,18 @@ from server.auth import (
     check_credentials,
     create_token,
     is_auth_enabled,
+    oauth2_scheme_optional,
+    verify_token,
 )
 from server.i18n import Translator
-from server.services.newapi_sso import NewapiSSOError, ensure_newapi_provider, exchange_code, load_newapi_config
+from server.services.newapi_sso import (
+    NewapiSSOError,
+    ensure_newapi_provider,
+    exchange_code,
+    load_newapi_config,
+    logout_session,
+    remember_session,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -132,8 +141,9 @@ async def newapi_exchange(
             await worker.reload_limits()
 
     subject = f"newapi:{grant.user_id}"
+    remember_session(grant.session_id, True)
     logger.info("new-api 登录成功: %s (%s)", subject, grant.username)
-    return TokenResponse(access_token=create_token(subject), token_type="bearer")
+    return TokenResponse(access_token=create_token(subject, newapi_session_id=grant.session_id), token_type="bearer")
 
 
 @router.get("/auth/verify", response_model=VerifyResponse)
@@ -145,3 +155,13 @@ async def verify(
     使用 OAuth2 Bearer token 依赖自动提取和验证 token。
     """
     return VerifyResponse(valid=True, username=current_user.sub)
+
+
+@router.post("/auth/logout", status_code=204)
+async def logout(token: Annotated[str | None, Depends(oauth2_scheme_optional)] = None):
+    """退出登录。new-api 登录的令牌顺带吊销其 new-api 会话（单点退出）；JWT 本身由前端丢弃。"""
+    payload = verify_token(token) if token else None
+    session_id = payload.get("newapi_sid") if payload else None
+    config = load_newapi_config()
+    if config and isinstance(session_id, str):
+        await logout_session(config, session_id)

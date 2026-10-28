@@ -1,6 +1,6 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { Link } from "wouter";
-import { Bot, ChevronDown, FileArchive, Library, Loader2, Plus, Search, Settings } from "lucide-react";
+import { Bot, ChevronDown, FileArchive, Library, Loader2, LogOut, Plus, Search, Settings } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { cn } from "cn";
 import { ROUTE_APP_ASSETS, ROUTE_APP_SETTINGS, settingsSectionPath } from "@/app-routes";
@@ -17,6 +17,7 @@ import {
 import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupText } from "@/components/ui/input-group";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ONBOARDING_ANCHORS } from "@/onboarding/anchors";
+import { useAuthStore } from "@/stores/auth-store";
 import { useConfigStatusStore } from "@/stores/config-status-store";
 
 interface LobbyHeaderProps {
@@ -31,6 +32,9 @@ interface LobbyHeaderProps {
 export function LobbyHeader({ query, onQueryChange, onCreate, onImport, importing }: LobbyHeaderProps) {
   const { t } = useTranslation(["dashboard", "common", "assets"]);
   const configComplete = useConfigStatusStore((s) => s.isComplete);
+  // 关闭认证时没有令牌，也就没有可退出的会话；退出后由 AuthGuard 送回登录页。
+  const hasToken = useAuthStore((s) => s.token !== null);
+  const logout = useAuthStore((s) => s.logout);
   const searchRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -91,6 +95,16 @@ export function LobbyHeader({ query, onQueryChange, onCreate, onImport, importin
               />
             )}
           </IconLink>
+          {hasToken && (
+            <Tooltip>
+              <TooltipTrigger
+                render={<Button variant="ghost" size="icon" aria-label={t("common:logout")} onClick={logout} />}
+              >
+                <LogOut aria-hidden />
+              </TooltipTrigger>
+              <TooltipContent>{t("common:logout")}</TooltipContent>
+            </Tooltip>
+          )}
         </>
       }
     >

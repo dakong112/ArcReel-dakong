@@ -1,15 +1,20 @@
 """new-api 统一账号登录：读取配置、交换一次性登录码、按需把密钥存为自定义供应商。
 
-浏览器先到 new-api 的 ``/sso/authorize`` 取得登录码，回到 ``NEWAPI_REDIRECT_URI`` 后由前端把
+浏览器先到 new-api 的 ``/api/sso/authorize`` 取得登录码（``prompt=none`` 时不弹登录页，未登录直接带
+``error=login_required`` 回跳），回到 ``NEWAPI_REDIRECT_URI`` 后由前端把
 登录码交给本服务；本服务凭客户端密钥向 new-api 的 ``/api/sso/exchange`` 兑换用户身份与 API 密钥。
 ArcReel 是单租户实例：任何换得身份的 new-api 用户都以实例用户身份登录，谁能进来由 new-api
 上该 SSO 客户端的 ``allowed_user_ids`` 决定，``NEWAPI_ALLOWED_USER_IDS`` 是实例侧的第二道名单。
+
+令牌里带着 new-api 登录会话 id：new-api 退出或会话被吊销后，``session_active`` 让本实例的令牌随之失效；
+本实例退出时 ``logout_session`` 反过来吊销 new-api 会话（单点退出）。
 """
 
 from __future__ import annotations
 
 import logging
 import os
+import time
 from dataclasses import dataclass
 from urllib.parse import urlencode
 
@@ -22,6 +27,10 @@ from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 logger = logging.getLogger(__name__)
 
 EXCHANGE_TIMEOUT = httpx.Timeout(10.0, connect=5.0)
+SESSION_TIMEOUT = httpx.Timeout(5.0, connect=3.0)
+# 会话状态缓存 30 秒；new-api 暂时不可达时沿用最后一次确认的状态，最多 5 分钟，之后按失效处理。
+SESSION_CACHE_TTL = 30.0
+SESSION_STALE_LIMIT = 300.0
 NEWAPI_PROVIDER_NAME = "new-api"
 _TRUE_VALUES = frozenset({"true", "1", "yes", "on"})
 
@@ -46,7 +55,7 @@ class NewapiSSOConfig:
     def authorize_url(self) -> str:
         """浏览器登录入口，不含 state；前端生成 state 后追加。"""
         query = urlencode({"client_id": self.client_id, "redirect_uri": self.redirect_uri})
-        return f"{self.public_url}/sso/authorize?{query}"
+        return f"{self.public_url}/api/sso/authorize?{query}"
 
 
 @dataclass(frozen=True)
@@ -54,6 +63,7 @@ class NewapiGrant:
     user_id: int
     username: str
     api_key: str
+    session_id: str
 
 
 class NewapiSSOError(Exception):
@@ -128,13 +138,78 @@ async def exchange_code(config: NewapiSSOConfig, code: str) -> NewapiGrant:
         logger.warning("new-api 用户 %s 不在 NEWAPI_ALLOWED_USER_IDS 名单内，拒绝登录", user_id)
         raise NewapiSSOError(403, "newapi_sso_denied")
 
+    # 没有会话 id 的令牌无法随 new-api 退出而失效，宁可拒绝登录。
+    session_id = data.get("session_id")
+    if not isinstance(session_id, str) or not session_id:
+        logger.warning("new-api SSO 交换未返回 session_id")
+        raise NewapiSSOError(502, "newapi_sso_failed")
+
     username = user.get("username")
     api_key = data.get("api_key")
     return NewapiGrant(
         user_id=user_id,
         username=username if isinstance(username, str) else "",
         api_key=api_key if isinstance(api_key, str) else "",
+        session_id=session_id,
     )
+
+
+# session_id → (是否有效, 上次检查时刻, 上次得到 new-api 答复的时刻)，均为 monotonic 秒。
+_session_cache: dict[str, tuple[bool, float, float]] = {}
+
+
+def remember_session(session_id: str, active: bool) -> None:
+    """记下 new-api 刚确认过的会话状态（登录、退出时直接写入，免一次查询）。"""
+    # ponytail: 单租户实例的会话数很少，超量时整体清空即可，不做 LRU。
+    if len(_session_cache) > 1024:
+        _session_cache.clear()
+    now = time.monotonic()
+    _session_cache[session_id] = (active, now, now)
+
+
+async def _fetch_session_active(config: NewapiSSOConfig, session_id: str) -> bool:
+    body = {"client_id": config.client_id, "client_secret": config.client_secret, "session_ids": [session_id]}
+    async with httpx.AsyncClient(timeout=SESSION_TIMEOUT) as client:
+        resp = await client.post(f"{config.base_url}/api/sso/session/status", json=body)
+    resp.raise_for_status()
+    payload = resp.json()
+    data = payload.get("data") if isinstance(payload, dict) and payload.get("success") is True else None
+    active = data.get("active") if isinstance(data, dict) else None
+    if not isinstance(active, dict):
+        raise ValueError("new-api 会话状态响应格式无效")
+    return active.get(session_id) is True
+
+
+async def session_active(config: NewapiSSOConfig, session_id: str) -> bool:
+    """new-api 登录会话是否仍有效；结果缓存 30 秒，查询失败时最多沿用最后答复 5 分钟。"""
+    # ponytail: 缓存过期瞬间的并发请求会各查一次；单租户并发低，不做 singleflight。
+    now = time.monotonic()
+    entry = _session_cache.get(session_id)
+    if entry and now - entry[1] < SESSION_CACHE_TTL:
+        return entry[0]
+    try:
+        active = await _fetch_session_active(config, session_id)
+    except (httpx.HTTPError, ValueError) as exc:
+        if entry and now - entry[2] < SESSION_STALE_LIMIT:
+            logger.warning("new-api 会话状态查询失败，沿用上次结果: %r", exc)
+            _session_cache[session_id] = (entry[0], now, entry[2])
+            return entry[0]
+        logger.warning("new-api 会话状态查询失败且无近期结果，按失效处理: %r", exc)
+        return False
+    remember_session(session_id, active)
+    return active
+
+
+async def logout_session(config: NewapiSSOConfig, session_id: str) -> None:
+    """吊销 new-api 登录会话；失败只记日志，本地退出照常进行。"""
+    remember_session(session_id, False)
+    body = {"client_id": config.client_id, "client_secret": config.client_secret, "session_id": session_id}
+    try:
+        async with httpx.AsyncClient(timeout=SESSION_TIMEOUT) as client:
+            resp = await client.post(f"{config.base_url}/api/sso/session/logout", json=body)
+        resp.raise_for_status()
+    except httpx.HTTPError as exc:
+        logger.warning("new-api 会话吊销失败: %r", exc)
 
 
 async def ensure_newapi_provider(session: AsyncSession, config: NewapiSSOConfig, api_key: str) -> bool:

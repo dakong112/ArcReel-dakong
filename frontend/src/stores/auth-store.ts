@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { getToken, setToken as saveToken, clearToken } from "@/utils/auth";
+import { claimSilentLogin } from "@/utils/newapi-sso";
 
 interface AuthState {
   token: string | null;
@@ -60,6 +61,17 @@ export const useAuthStore = create<AuthState>((set) => ({
   },
 
   logout: () => {
+    // 通知后端退出（new-api 登录会顺带吊销 new-api 会话）；keepalive 保证随后的跳转不会掐断请求。
+    const token = getToken();
+    if (token) {
+      void fetch("/api/v1/auth/logout", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        keepalive: true,
+      }).catch(() => {});
+    }
+    // 主动退出后回到登录页不再静默登录回来。
+    claimSilentLogin();
     clearToken();
     set({ token: null, username: null, isAuthenticated: false });
   },

@@ -1,4 +1,4 @@
-"""new-api 统一账号登录：状态接口、登录码交换与首登自动配置供应商。"""
+"""new-api 统一账号登录：状态接口、登录码交换、首登自动配置供应商与登录会话联动。"""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from collections.abc import Iterator
 import httpx
 import pytest
 import respx
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.testclient import TestClient
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -16,9 +16,12 @@ import server.auth as auth_module
 from lib.db import get_async_session
 from lib.db.repositories.custom_provider_repo import CustomProviderRepository
 from server.routers import auth as auth_router
+from server.services import newapi_sso
 
 NEWAPI = "https://newapi.test"
 EXCHANGE_URL = f"{NEWAPI}/api/sso/exchange"
+STATUS_URL = f"{NEWAPI}/api/sso/session/status"
+LOGOUT_URL = f"{NEWAPI}/api/sso/session/logout"
 REDIRECT_URI = "https://alice.arcreel.test/sso/callback"
 
 
@@ -32,6 +35,7 @@ def grant(user_id: int = 7, api_key: str = "sk-alice") -> dict:
             "access_token_expires_at": 0,
             "api_key": api_key,
             "permissions": [],
+            "session_id": "sess-1",
         },
     }
 
@@ -46,6 +50,8 @@ def newapi_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("NEWAPI_REDIRECT_URI", REDIRECT_URI)
     monkeypatch.delenv("NEWAPI_ALLOWED_USER_IDS", raising=False)
     monkeypatch.delenv("NEWAPI_AUTO_PROVIDER", raising=False)
+    monkeypatch.delenv("AUTH_ENABLED", raising=False)
+    monkeypatch.setattr(newapi_sso, "_session_cache", {})
 
 
 @pytest.fixture
@@ -58,6 +64,7 @@ def newapi_client(db_factory: async_sessionmaker[AsyncSession]) -> Iterator[Test
 
     app.dependency_overrides[get_async_session] = override_session
     app.include_router(auth_router.public_router, prefix="/api/v1")
+    app.include_router(auth_router.router, prefix="/api/v1", dependencies=[Depends(auth_module.get_current_user)])
     with TestClient(app) as c:
         yield c
 
@@ -77,7 +84,7 @@ class TestStatus:
         body = newapi_client.get("/api/v1/auth/status").json()
         url = httpx.URL(body["newapi"]["authorize_url"])
         assert body["newapi"]["enabled"] is True
-        assert str(url.copy_with(query=None)) == "https://account.test/sso/authorize"
+        assert str(url.copy_with(query=None)) == "https://account.test/api/sso/authorize"
         assert url.params["client_id"] == "arcreel-alice"
         assert url.params["redirect_uri"] == REDIRECT_URI
         assert "state" not in url.params
@@ -94,6 +101,7 @@ class TestExchange:
         payload = auth_module.verify_token(resp.json()["access_token"])
         assert payload is not None
         assert payload["sub"] == "newapi:7"
+        assert payload["newapi_sid"] == "sess-1"
         assert json.loads(route.calls.last.request.content) == {
             "client_id": "arcreel-alice",
             "client_secret": "s3cret",
@@ -141,6 +149,14 @@ class TestExchange:
             resp = exchange(newapi_client)
         assert resp.status_code == 502
 
+    def test_missing_session_id_returns_502(self, newapi_client: TestClient):
+        body = grant()
+        del body["data"]["session_id"]
+        with respx.mock(assert_all_called=True) as remote:
+            remote.post(EXCHANGE_URL).respond(200, json=body)
+            resp = exchange(newapi_client)
+        assert resp.status_code == 502
+
     @pytest.mark.parametrize(("allowed", "expected"), [("1, 2", 403), ("2,7", 200)])
     def test_allowed_user_ids_env_is_enforced(
         self, newapi_client: TestClient, monkeypatch: pytest.MonkeyPatch, allowed: str, expected: int
@@ -179,3 +195,79 @@ class TestAutoProvider:
             remote.post(EXCHANGE_URL).respond(200, json=grant())
             assert exchange(newapi_client).status_code == 200
         assert await self.providers(db_factory) == []
+
+
+def status_body(active: bool, sid: str = "sess-1") -> dict:
+    return {"success": True, "data": {"active": {sid: active}}}
+
+
+def verify(client: TestClient, token: str) -> httpx.Response:
+    return client.get("/api/v1/auth/verify", headers={"Authorization": f"Bearer {token}"})
+
+
+def age_session(sid: str = "sess-1", *, checked: float, confirmed: float) -> None:
+    """把缓存条目的检查 / 确认时刻往前拨，模拟时间流逝。"""
+    active, checked_at, confirmed_at = newapi_sso._session_cache[sid]
+    newapi_sso._session_cache[sid] = (active, checked_at - checked, confirmed_at - confirmed)
+
+
+@pytest.mark.usefixtures("newapi_env")
+class TestSessionLink:
+    def login(self, client: TestClient) -> str:
+        with respx.mock(assert_all_called=True) as remote:
+            remote.post(EXCHANGE_URL).respond(200, json=grant())
+            return exchange(client).json()["access_token"]
+
+    def test_fresh_login_is_trusted_without_status_call(self, newapi_client: TestClient):
+        token = self.login(newapi_client)
+        with respx.mock(assert_all_called=False) as remote:
+            route = remote.post(STATUS_URL)
+            assert verify(newapi_client, token).status_code == 200
+        assert not route.called
+
+    def test_inactive_session_is_rejected_and_status_is_cached(self, newapi_client: TestClient):
+        token = self.login(newapi_client)
+        age_session(checked=31, confirmed=31)
+        with respx.mock(assert_all_called=True) as remote:
+            route = remote.post(STATUS_URL).respond(200, json=status_body(False))
+            first = verify(newapi_client, token)
+            second = verify(newapi_client, token)
+        assert first.status_code == second.status_code == 401
+        assert first.json()["detail"] == "登录已失效，请重新登录"
+        assert route.call_count == 1
+        assert json.loads(route.calls.last.request.content) == {
+            "client_id": "arcreel-alice",
+            "client_secret": "s3cret",
+            "session_ids": ["sess-1"],
+        }
+
+    def test_transient_error_keeps_last_state_for_five_minutes(self, newapi_client: TestClient):
+        token = self.login(newapi_client)
+        age_session(checked=31, confirmed=200)
+        with respx.mock(assert_all_called=True) as remote:
+            remote.post(STATUS_URL).mock(side_effect=httpx.ConnectError("down"))
+            assert verify(newapi_client, token).status_code == 200
+            age_session(checked=31, confirmed=101)
+            assert verify(newapi_client, token).status_code == 401
+
+    def test_token_without_session_id_is_rejected(self, newapi_client: TestClient):
+        assert verify(newapi_client, auth_module.create_token("newapi:7")).status_code == 401
+
+    def test_password_login_is_not_checked(self, newapi_client: TestClient):
+        with respx.mock(assert_all_called=False) as remote:
+            route = remote.post(STATUS_URL)
+            assert verify(newapi_client, auth_module.create_token("admin")).status_code == 200
+        assert not route.called
+
+    def test_logout_revokes_newapi_session(self, newapi_client: TestClient):
+        token = self.login(newapi_client)
+        with respx.mock(assert_all_called=True) as remote:
+            route = remote.post(LOGOUT_URL).respond(200, json={"success": True})
+            resp = newapi_client.post("/api/v1/auth/logout", headers={"Authorization": f"Bearer {token}"})
+        assert resp.status_code == 204
+        assert json.loads(route.calls.last.request.content) == {
+            "client_id": "arcreel-alice",
+            "client_secret": "s3cret",
+            "session_id": "sess-1",
+        }
+        assert verify(newapi_client, token).status_code == 401

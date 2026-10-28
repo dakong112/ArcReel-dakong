@@ -5,7 +5,7 @@ ArcReel 是单租户应用：一个实例里只有一个用户空间，所有项
 ```text
 浏览器 ── alice.arcreel.example.com ──► 反向代理 ──► 127.0.0.1:12401 ──► arcreel-alice 容器 ──► ./projects（数据卷）
    │                                                                          │
-   └──── 登录跳转 ────► new-api /sso/authorize          服务端兑换登录码 ◄────┘
+   └──── 登录跳转 ────► new-api /api/sso/authorize      服务端兑换登录码 ◄────┘
                          （SSO 客户端 arcreel-alice，allowed_user_ids 控制谁能进）
 ```
 
@@ -141,6 +141,8 @@ server {
 | `NEWAPI_AUTO_PROVIDER` | 否 | `true` 时首次统一登录自动配置供应商，见第 3 节 |
 
 `NEWAPI_BASE_URL`、`NEWAPI_CLIENT_ID`、`NEWAPI_CLIENT_SECRET`、`NEWAPI_REDIRECT_URI` 缺任何一项，实例只提供本地密码登录。
+
+登录状态与 new-api 共享：已登录 new-api 的用户打开登录页会被静默登录（`prompt=none`）直接带进应用；令牌绑定 new-api 登录会话，在 new-api 退出后约 30 秒内本实例随之失效（new-api 暂时不可达时最多沿用 5 分钟）；在本实例退出也会吊销对应的 new-api 会话。
 
 ## 3. 计费如何流转
 

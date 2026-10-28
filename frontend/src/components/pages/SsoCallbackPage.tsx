@@ -22,6 +22,12 @@ export function SsoCallbackPage() {
     if (started.current) return;
     started.current = true;
     const params = new URLSearchParams(search);
+    // 静默登录发现 new-api 未登录：回登录页显示表单（登录页一分钟内不再静默尝试，不会循环）。
+    if (params.get("error") === "login_required") {
+      const from = consumeNewapiLogin(params.get("state"))?.from;
+      setLocation(from ? `/login?from=${encodeURIComponent(from)}` : "/login", { replace: true });
+      return;
+    }
     const exchange = async () => {
       const pending = consumeNewapiLogin(params.get("state"));
       if (!pending) throw new Error(t("sso_state_mismatch"));

@@ -116,12 +116,15 @@ def get_token_secret() -> str:
     return _cached_token_secret
 
 
-def create_token(username: str, *, expiry_seconds: int = TOKEN_EXPIRY_SECONDS) -> str:
+def create_token(
+    username: str, *, expiry_seconds: int = TOKEN_EXPIRY_SECONDS, newapi_session_id: str | None = None
+) -> str:
     """创建 JWT token
 
     Args:
         username: 用户名
         expiry_seconds: token 有效秒数；网页登录沿用 7 天，内嵌 Agent 使用短时效。
+        newapi_session_id: new-api 登录会话 id，写入 ``newapi_sid`` 声明，供认证时核对会话是否仍有效。
 
     Returns:
         JWT token 字符串
@@ -132,6 +135,8 @@ def create_token(username: str, *, expiry_seconds: int = TOKEN_EXPIRY_SECONDS) -
         "iat": now,
         "exp": now + expiry_seconds,
     }
+    if newapi_session_id:
+        payload["newapi_sid"] = newapi_session_id
     return jwt.encode(payload, get_token_secret(), algorithm="HS256")
 
 
@@ -437,6 +442,23 @@ async def _verify_and_get_payload_async(token: str) -> dict:
     return _verify_and_get_payload(token)
 
 
+NEWAPI_SESSION_EXPIRED = "登录已失效，请重新登录"
+
+
+async def _require_newapi_session(payload: dict) -> None:
+    """``newapi:*`` 令牌要求其 new-api 登录会话仍有效，否则 401。"""
+    from server.services.newapi_sso import load_newapi_config, session_active
+
+    config = load_newapi_config()
+    session_id = payload.get("newapi_sid")
+    if config is None or not isinstance(session_id, str) or not await session_active(config, session_id):
+        raise HTTPException(
+            status_code=401,
+            detail=NEWAPI_SESSION_EXPIRED,
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+
 def _payload_to_user(payload: dict) -> CurrentUserInfo:
     """Convert a verified JWT/API-key payload to CurrentUserInfo."""
     from lib.db.base import DEFAULT_USER_ID
@@ -462,6 +484,8 @@ async def get_current_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
     payload = await _verify_and_get_payload_async(token)
+    if str(payload.get("sub", "")).startswith("newapi:"):
+        await _require_newapi_session(payload)
     return _payload_to_user(payload)
 
 
