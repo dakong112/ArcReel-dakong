@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
-import { AlertTriangle, ChevronRight, ExternalLink, Loader2, RefreshCcw } from "lucide-react";
+import { AlertTriangle, ChevronRight, Loader2, RefreshCcw } from "lucide-react";
 import { useTranslation } from "react-i18next";
 import { API } from "@/api";
 import { StreamMarkdown } from "@/components/copilot/StreamMarkdown";
@@ -152,17 +152,6 @@ export function AboutSection() {
                 ) : (
                   <p className="text-sm text-muted-foreground">{t("about_release_notes_empty")}</p>
                 )}
-                {latest?.html_url && (
-                  <a
-                    href={latest.html_url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex w-fit items-center gap-1.5 text-sm text-primary underline-offset-4 hover:underline"
-                  >
-                    {t("about_open_release")}
-                    <ExternalLink className="size-3.5" aria-hidden />
-                  </a>
-                )}
               </div>
             </CollapsibleContent>
           </Collapsible>
@@ -198,6 +187,17 @@ export function AboutSection() {
               className="break-all text-primary underline-offset-4 hover:underline"
             >
               https://github.com/ArcReel/ArcReel
+            </a>
+          </p>
+          <p>
+            {t("about_source_offer")}
+            <a
+              href="https://github.com/dakong112/ArcReel-dakong"
+              target="_blank"
+              rel="noreferrer"
+              className="break-all text-primary underline-offset-4 hover:underline"
+            >
+              https://github.com/dakong112/ArcReel-dakong
             </a>
           </p>
         </div>

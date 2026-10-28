@@ -87,7 +87,7 @@ describe("AboutSection diagnostics download", () => {
 });
 
 describe("AboutSection release notes", () => {
-  it("收起最新一条发布说明，展开后显示正文与 Release 链接", async () => {
+  it("收起最新一条发布说明，展开后显示正文，不链接上游 Release", async () => {
     vi.spyOn(API, "getSystemVersion").mockResolvedValue({
       ...VERSION_RESPONSE,
       latest: {
@@ -111,9 +111,6 @@ describe("AboutSection release notes", () => {
 
     // 正文可能从纯文本替换为 Markdown；同步查询并断言可见，不依赖子组件加载时序。
     await waitFor(() => expect(screen.getByText(/faster exports/)).toBeVisible());
-    expect(await screen.findByRole("link", { name: /打开 GitHub Release/ })).toHaveAttribute(
-      "href",
-      "https://github.com/example/ArcReel/releases/tag/v1.1.0",
-    );
+    expect(screen.queryByRole("link", { name: /GitHub Release/ })).not.toBeInTheDocument();
   });
 });
