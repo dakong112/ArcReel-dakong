@@ -18,7 +18,9 @@ interface PendingLogin {
 
 /** 跳转到 new-api 授权页；`authorizeUrl` 来自 `/auth/status`，已带 client_id 与 redirect_uri。 */
 export function startNewapiLogin(authorizeUrl: string, from: string | null, silent = false): void {
-  const pending: PendingLogin = { state: crypto.randomUUID(), from };
+  // crypto.randomUUID 只在安全上下文（HTTPS / localhost）存在，纯 HTTP 部署要用 getRandomValues。
+  const state = Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) => b.toString(16).padStart(2, "0")).join("");
+  const pending: PendingLogin = { state, from };
   sessionStorage.setItem(STORAGE_KEY, JSON.stringify(pending));
   const url = new URL(authorizeUrl);
   url.searchParams.set("state", pending.state);
